@@ -2,42 +2,365 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CirclePlus,
+  Clock3,
+  ListChecks,
+  Minus,
+  Plus,
+  RotateCcw,
+  Send,
+  ShoppingBag,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
+import { CategoryIcon, iconChoices } from "./category-icons";
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { SortableItemRow } from "./sortable-item-row";
 
 type Item = { id: string; name: string; selected: boolean; quantity?: number };
-type Category = { id: string; name: string; icon: string; color: string; items: Item[] };
-type HistoryItem = { id: string; name: string; categoryId: string; categoryName: string; icon: string; lastSelectedAt: string };
+type Category = {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  items: Item[];
+};
+type HistoryItem = {
+  id: string;
+  name: string;
+  categoryId: string;
+  categoryName: string;
+  icon: string;
+  lastSelectedAt: string;
+};
 
 const initialCategories: Category[] = [
-  { id: "vegetables", name: "野菜", icon: "🥬", color: "#E7F0D9", items: ["キャベツ", "レタス", "トマト", "きゅうり", "玉ねぎ", "にんじん", "じゃがいも"].map((name, i) => ({ id: `v${i}`, name, selected: i === 1 || i === 3 })) },
-  { id: "fruit", name: "果物", icon: "🍎", color: "#F8E1D7", items: ["りんご", "バナナ", "みかん", "キウイ"].map((name, i) => ({ id: `f${i}`, name, selected: false })) },
-  { id: "meat", name: "お肉", icon: "🥩", color: "#F3DCD7", items: ["鶏もも肉", "豚こま肉", "ひき肉", "ウインナー"].map((name, i) => ({ id: `m${i}`, name, selected: i === 0 })) },
-  { id: "fish", name: "お魚", icon: "🐟", color: "#DCECEF", items: ["鮭", "さば", "刺身", "しらす"].map((name, i) => ({ id: `s${i}`, name, selected: false })) },
-  { id: "dairy", name: "卵・乳製品", icon: "🥛", color: "#F5EACB", items: ["卵", "牛乳", "ヨーグルト", "チーズ", "バター"].map((name, i) => ({ id: `d${i}`, name, selected: i === 1 || i === 2 })) },
-  { id: "bread", name: "パン", icon: "🍞", color: "#EFE0C9", items: ["食パン", "ロールパン", "菓子パン"].map((name, i) => ({ id: `b${i}`, name, selected: false })) },
-  { id: "staples", name: "麺・ご飯", icon: "🍜", color: "#F1E5D1", items: ["うどん", "パスタ", "焼きそば", "お米"].map((name, i) => ({ id: `n${i}`, name, selected: false })) },
-  { id: "frozen", name: "冷凍食品", icon: "🧊", color: "#DDEBF2", items: ["冷凍餃子", "冷凍うどん", "アイス"].map((name, i) => ({ id: `z${i}`, name, selected: false })) },
-  { id: "processed", name: "加工食品", icon: "🥫", color: "#E9E2D2", items: ["豆腐", "納豆", "缶詰", "ハム"].map((name, i) => ({ id: `p${i}`, name, selected: false })) },
-  { id: "seasoning", name: "調味料", icon: "🧂", color: "#E9E5D8", items: ["しょうゆ", "みそ", "塩", "砂糖", "マヨネーズ"].map((name, i) => ({ id: `c${i}`, name, selected: false })) },
-  { id: "snacks", name: "お菓子", icon: "🍪", color: "#F2DFCE", items: ["チョコレート", "ポテトチップス", "せんべい"].map((name, i) => ({ id: `o${i}`, name, selected: false })) },
-  { id: "drinks", name: "飲み物", icon: "🧃", color: "#DDEADB", items: ["お茶", "コーヒー", "ジュース", "炭酸水"].map((name, i) => ({ id: `r${i}`, name, selected: false })) },
-  { id: "daily", name: "日用品", icon: "🧻", color: "#E4E1EE", items: ["ティッシュ", "キッチンペーパー", "洗剤", "ゴミ袋"].map((name, i) => ({ id: `h${i}`, name, selected: i === 1 })) },
+  {
+    id: "vegetables",
+    name: "野菜",
+    icon: "🥬",
+    color: "#E7F0D9",
+    items: [
+      "キャベツ",
+      "レタス",
+      "トマト",
+      "きゅうり",
+      "玉ねぎ",
+      "にんじん",
+      "じゃがいも",
+      "長ねぎ",
+      "大根",
+      "ほうれん草",
+      "小松菜",
+      "ブロッコリー",
+      "ピーマン",
+      "なす",
+      "きのこ",
+    ].map((name, i) => ({ id: `v${i}`, name, selected: i === 1 || i === 3 })),
+  },
+  {
+    id: "fruit",
+    name: "果物",
+    icon: "🍎",
+    color: "#F8E1D7",
+    items: [
+      "りんご",
+      "バナナ",
+      "みかん",
+      "キウイ",
+      "いちご",
+      "ぶどう",
+      "桃",
+      "梨",
+      "柿",
+      "レモン",
+      "オレンジ",
+      "グレープフルーツ",
+      "パイナップル",
+      "メロン",
+      "アボカド",
+    ].map((name, i) => ({ id: `f${i}`, name, selected: false })),
+  },
+  {
+    id: "meat",
+    name: "お肉",
+    icon: "🥩",
+    color: "#F3DCD7",
+    items: [
+      "鶏もも肉",
+      "豚こま肉",
+      "ひき肉",
+      "ウインナー",
+      "鶏むね肉",
+      "ささみ",
+      "手羽先",
+      "豚バラ肉",
+      "豚ロース",
+      "牛こま肉",
+      "牛ステーキ肉",
+      "合いびき肉",
+      "ベーコン",
+      "ハム",
+      "焼豚",
+    ].map((name, i) => ({ id: `m${i}`, name, selected: i === 0 })),
+  },
+  {
+    id: "fish",
+    name: "お魚",
+    icon: "🐟",
+    color: "#DCECEF",
+    items: [
+      "鮭",
+      "さば",
+      "刺身",
+      "しらす",
+      "あじ",
+      "ぶり",
+      "まぐろ",
+      "かつお",
+      "たら",
+      "さんま",
+      "いわし",
+      "えび",
+      "いか",
+      "たこ",
+      "魚の干物",
+    ].map((name, i) => ({ id: `s${i}`, name, selected: false })),
+  },
+  {
+    id: "dairy",
+    name: "卵・乳製品",
+    icon: "🥛",
+    color: "#F5EACB",
+    items: [
+      "卵",
+      "牛乳",
+      "ヨーグルト",
+      "チーズ",
+      "バター",
+      "生クリーム",
+      "豆乳",
+      "低脂肪乳",
+      "飲むヨーグルト",
+      "スライスチーズ",
+      "粉チーズ",
+      "クリームチーズ",
+      "モッツァレラチーズ",
+      "マーガリン",
+      "プリン",
+    ].map((name, i) => ({ id: `d${i}`, name, selected: i === 1 || i === 2 })),
+  },
+  {
+    id: "bread",
+    name: "パン",
+    icon: "🍞",
+    color: "#EFE0C9",
+    items: [
+      "食パン",
+      "ロールパン",
+      "菓子パン",
+      "フランスパン",
+      "クロワッサン",
+      "ベーグル",
+      "バターロール",
+      "イングリッシュマフィン",
+      "サンドイッチ",
+      "総菜パン",
+      "蒸しパン",
+      "ホットドッグ用パン",
+      "ハンバーガーバンズ",
+      "ピザ",
+      "パン粉",
+    ].map((name, i) => ({ id: `b${i}`, name, selected: false })),
+  },
+  {
+    id: "staples",
+    name: "麺・ご飯",
+    icon: "🍜",
+    color: "#F1E5D1",
+    items: [
+      "うどん",
+      "パスタ",
+      "焼きそば",
+      "お米",
+      "そば",
+      "そうめん",
+      "中華麺",
+      "ラーメン",
+      "冷やし中華",
+      "ビーフン",
+      "春雨",
+      "もち",
+      "玄米",
+      "パックご飯",
+      "シリアル",
+    ].map((name, i) => ({ id: `n${i}`, name, selected: false })),
+  },
+  {
+    id: "frozen",
+    name: "冷凍食品",
+    icon: "🧊",
+    color: "#DDEBF2",
+    items: [
+      "冷凍餃子",
+      "冷凍うどん",
+      "アイス",
+      "冷凍チャーハン",
+      "冷凍パスタ",
+      "冷凍ピラフ",
+      "冷凍たこ焼き",
+      "冷凍お好み焼き",
+      "冷凍野菜",
+      "冷凍フルーツ",
+      "冷凍ポテト",
+      "冷凍からあげ",
+      "冷凍コロッケ",
+      "冷凍グラタン",
+      "冷凍弁当おかず",
+    ].map((name, i) => ({ id: `z${i}`, name, selected: false })),
+  },
+  {
+    id: "processed",
+    name: "加工食品",
+    icon: "🥫",
+    color: "#E9E2D2",
+    items: [
+      "豆腐",
+      "納豆",
+      "缶詰",
+      "ハム",
+      "油揚げ",
+      "厚揚げ",
+      "こんにゃく",
+      "ちくわ",
+      "かまぼこ",
+      "さつま揚げ",
+      "漬物",
+      "キムチ",
+      "レトルトカレー",
+      "インスタントスープ",
+      "シーチキン",
+    ].map((name, i) => ({ id: `p${i}`, name, selected: false })),
+  },
+  {
+    id: "seasoning",
+    name: "調味料",
+    icon: "🧂",
+    color: "#E9E5D8",
+    items: [
+      "しょうゆ",
+      "みそ",
+      "塩",
+      "砂糖",
+      "マヨネーズ",
+      "ケチャップ",
+      "酢",
+      "みりん",
+      "料理酒",
+      "サラダ油",
+      "ごま油",
+      "めんつゆ",
+      "だしの素",
+      "こしょう",
+      "ドレッシング",
+    ].map((name, i) => ({ id: `c${i}`, name, selected: false })),
+  },
+  {
+    id: "snacks",
+    name: "お菓子",
+    icon: "🍪",
+    color: "#F2DFCE",
+    items: [
+      "チョコレート",
+      "ポテトチップス",
+      "せんべい",
+      "クッキー",
+      "ビスケット",
+      "キャンディ",
+      "グミ",
+      "ガム",
+      "アイスクリーム",
+      "プリン",
+      "ゼリー",
+      "シュークリーム",
+      "和菓子",
+      "ナッツ",
+      "ドライフルーツ",
+    ].map((name, i) => ({ id: `o${i}`, name, selected: false })),
+  },
+  {
+    id: "drinks",
+    name: "飲み物",
+    icon: "🧃",
+    color: "#DDEADB",
+    items: [
+      "お茶",
+      "コーヒー",
+      "ジュース",
+      "炭酸水",
+      "水",
+      "紅茶",
+      "麦茶",
+      "牛乳",
+      "豆乳",
+      "スポーツドリンク",
+      "野菜ジュース",
+      "炭酸飲料",
+      "栄養ドリンク",
+      "ビール",
+      "ワイン",
+    ].map((name, i) => ({ id: `r${i}`, name, selected: false })),
+  },
+  {
+    id: "daily",
+    name: "日用品",
+    icon: "🧻",
+    color: "#E4E1EE",
+    items: [
+      "ティッシュ",
+      "キッチンペーパー",
+      "洗剤",
+      "ゴミ袋",
+      "トイレットペーパー",
+      "ラップ",
+      "アルミホイル",
+      "食器用洗剤",
+      "スポンジ",
+      "ハンドソープ",
+      "シャンプー",
+      "ボディソープ",
+      "歯みがき粉",
+      "電池",
+      "除菌シート",
+    ].map((name, i) => ({ id: `h${i}`, name, selected: i === 1 })),
+  },
 ];
 
 export default function Home() {
-  const [categories, setCategories] = useState<Category[]>(() => {
-    if (typeof window === "undefined") return initialCategories;
-    const saved = localStorage.getItem("kago-categories");
-    if (saved) try { return JSON.parse(saved) as Category[]; } catch { /* use defaults */ }
-    return initialCategories;
-  });
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<"select" | "list">("select");
-  const [selectTab, setSelectTab] = useState<"category" | "history">("category");
-  const [history, setHistory] = useState<HistoryItem[]>(() => {
-    if (typeof window === "undefined") return [];
-    const saved = localStorage.getItem("kago-item-history");
-    if (saved) try { return JSON.parse(saved) as HistoryItem[]; } catch { /* empty history */ }
-    return [];
-  });
+  const [selectTab, setSelectTab] = useState<"category" | "history">(
+    "category",
+  );
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState("");
@@ -47,87 +370,696 @@ export default function Home() {
   const [sharing, setSharing] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
-  const [categoryIcon, setCategoryIcon] = useState("🛒");
+  const [categoryIcon, setCategoryIcon] = useState("basket");
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 6 },
+    }),
+  );
 
-  useEffect(() => { localStorage.setItem("kago-categories", JSON.stringify(categories)); }, [categories]);
-  useEffect(() => { localStorage.setItem("kago-item-history", JSON.stringify(history)); }, [history]);
-  useEffect(() => { if (!undo) return; const timer = setTimeout(() => setUndo(null), 6000); return () => clearTimeout(timer); }, [undo]);
+  useEffect(() => {
+    const savedCategories = localStorage.getItem("kago-categories");
+    if (savedCategories)
+      try {
+        const stored = JSON.parse(savedCategories) as Category[];
+        setCategories(
+          stored.map((category) => {
+            const defaults = initialCategories.find(
+              (item) => item.id === category.id,
+            );
+            if (!defaults) return category;
+            const existingNames = new Set(
+              category.items.map((item) => item.name),
+            );
+            return {
+              ...category,
+              items: [
+                ...category.items,
+                ...defaults.items.filter(
+                  (item) => !existingNames.has(item.name),
+                ),
+              ],
+            };
+          }),
+        );
+      } catch {
+        /* use defaults */
+      }
+    const savedHistory = localStorage.getItem("kago-item-history");
+    if (savedHistory)
+      try {
+        setHistory(JSON.parse(savedHistory) as HistoryItem[]);
+      } catch {
+        /* empty history */
+      }
+    setHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (hydrated)
+      localStorage.setItem("kago-categories", JSON.stringify(categories));
+  }, [categories, hydrated]);
+  useEffect(() => {
+    if (hydrated)
+      localStorage.setItem("kago-item-history", JSON.stringify(history));
+  }, [history, hydrated]);
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), 6000);
+    return () => clearTimeout(timer);
+  }, [undo]);
+  useEffect(() => {
+    if (!activeId) return;
+    const closeOnOutsideTap = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      if (
+        !event.target.closest(".inline-category-panel") &&
+        !event.target.closest(".category-card")
+      ) {
+        setActiveId(null);
+        setAdding(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideTap);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideTap);
+  }, [activeId]);
 
-  const active = categories.find(c => c.id === activeId);
-  const selectedGroups = useMemo(() => categories.map(c => ({ ...c, items: c.items.filter(i => i.selected) })).filter(c => c.items.length), [categories]);
+  const active = categories.find((c) => c.id === activeId);
+  const selectedGroups = useMemo(
+    () =>
+      categories
+        .map((c) => ({ ...c, items: c.items.filter((i) => i.selected) }))
+        .filter((c) => c.items.length),
+    [categories],
+  );
   const count = selectedGroups.reduce((sum, c) => sum + c.items.length, 0);
 
-  const rememberItem = (category: Category, item: Item) => setHistory(current => [
-    { id: item.id, name: item.name, categoryId: category.id, categoryName: category.name, icon: category.icon, lastSelectedAt: new Date().toISOString() },
-    ...current.filter(past => !(past.categoryId === category.id && past.id === item.id)),
-  ]);
+  const rememberItem = (category: Category, item: Item) =>
+    setHistory((current) => [
+      {
+        id: item.id,
+        name: item.name,
+        categoryId: category.id,
+        categoryName: category.name,
+        icon: category.icon,
+        lastSelectedAt: new Date().toISOString(),
+      },
+      ...current.filter(
+        (past) => !(past.categoryId === category.id && past.id === item.id),
+      ),
+    ]);
   const toggle = (categoryId: string, itemId: string) => {
-    const category = categories.find(c => c.id === categoryId);
-    const item = category?.items.find(i => i.id === itemId);
+    const category = categories.find((c) => c.id === categoryId);
+    const item = category?.items.find((i) => i.id === itemId);
     if (category && item && !item.selected) rememberItem(category, item);
-    setCategories(cs => cs.map(c => c.id === categoryId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, selected: !i.selected } : i) } : c));
+    setCategories((cs) =>
+      cs.map((c) =>
+        c.id === categoryId
+          ? {
+              ...c,
+              items: c.items.map((i) =>
+                i.id === itemId ? { ...i, selected: !i.selected } : i,
+              ),
+            }
+          : c,
+      ),
+    );
   };
-  const clearAll = () => { if (!count) return; setUndo(categories); setCategories(cs => cs.map(c => ({ ...c, items: c.items.map(i => ({ ...i, selected: false })) }))); };
-  const setQuantity = (categoryId: string, itemId: string, quantity: number) => setCategories(current => current.map(category => category.id === categoryId ? { ...category, items: category.items.map(item => item.id === itemId ? { ...item, quantity: Math.max(1, Math.min(99, quantity)) } : item) } : category));
+  const clearAll = () => {
+    if (!count) return;
+    setUndo(categories);
+    setCategories((cs) =>
+      cs.map((c) => ({
+        ...c,
+        items: c.items.map((i) => ({ ...i, selected: false })),
+      })),
+    );
+  };
+  const setQuantity = (categoryId: string, itemId: string, quantity: number) =>
+    setCategories((current) =>
+      current.map((category) =>
+        category.id === categoryId
+          ? {
+              ...category,
+              items: category.items.map((item) =>
+                item.id === itemId
+                  ? { ...item, quantity: Math.max(1, Math.min(99, quantity)) }
+                  : item,
+              ),
+            }
+          : category,
+      ),
+    );
+  const reorderItems = ({ active: dragged, over }: DragEndEvent) => {
+    if (!activeId || !over || dragged.id === over.id) return;
+    setCategories((current) =>
+      current.map((category) => {
+        if (category.id !== activeId) return category;
+        const from = category.items.findIndex((item) => item.id === dragged.id);
+        const to = category.items.findIndex((item) => item.id === over.id);
+        return from < 0 || to < 0
+          ? category
+          : { ...category, items: arrayMove(category.items, from, to) };
+      }),
+    );
+  };
   const addItem = (event: FormEvent) => {
-    event.preventDefault(); const name = newItem.trim(); if (!name || !activeId) return;
+    event.preventDefault();
+    const name = newItem.trim();
+    if (!name || !activeId) return;
     const id = crypto.randomUUID();
-    const category = categories.find(c => c.id === activeId);
-    if (category) rememberItem(category, { id, name, selected: true, quantity: 1 });
-    setCategories(cs => cs.map(c => c.id === activeId ? { ...c, items: [...c.items, { id, name, selected: true, quantity: 1 }] } : c));
-    setNewItem(""); setAdding(false);
+    const category = categories.find((c) => c.id === activeId);
+    if (category)
+      rememberItem(category, { id, name, selected: true, quantity: 1 });
+    setCategories((cs) =>
+      cs.map((c) =>
+        c.id === activeId
+          ? {
+              ...c,
+              items: [...c.items, { id, name, selected: true, quantity: 1 }],
+            }
+          : c,
+      ),
+    );
+    setNewItem("");
+    setAdding(false);
   };
-  const showNotice = (message: string) => { setNotice(message); setTimeout(() => setNotice(""), 3000); };
+  const showNotice = (message: string) => {
+    setNotice(message);
+    setTimeout(() => setNotice(""), 3000);
+  };
   const addCategory = (event: FormEvent) => {
     event.preventDefault();
     const name = categoryName.trim();
     if (!name) return;
-    if (categories.some(category => category.name === name)) { showNotice("同じ名前のカテゴリがあります"); return; }
+    if (categories.some((category) => category.name === name)) {
+      showNotice("同じ名前のカテゴリがあります");
+      return;
+    }
     const colors = ["#E1EADB", "#F1E0D2", "#DDE8EF", "#E8E0EE", "#F0E7CC"];
-    const category: Category = { id: crypto.randomUUID(), name, icon: categoryIcon.trim() || "🛒", color: colors[categories.length % colors.length], items: [] };
-    setCategories(current => [...current, category]);
-    setCategoryName(""); setCategoryIcon("🛒"); setCategoryOpen(false); setActiveId(category.id);
+    const category: Category = {
+      id: crypto.randomUUID(),
+      name,
+      icon: categoryIcon || "basket",
+      color: colors[categories.length % colors.length],
+      items: [],
+    };
+    setCategories((current) => [...current, category]);
+    setCategoryName("");
+    setCategoryIcon("basket");
+    setCategoryOpen(false);
+    setActiveId(category.id);
     showNotice("カテゴリを追加しました");
   };
   const toggleFromHistory = (past: HistoryItem) => {
-    const category = categories.find(c => c.id === past.categoryId);
-    const existing = category?.items.find(item => item.id === past.id);
+    const category = categories.find((c) => c.id === past.categoryId);
+    const existing = category?.items.find((item) => item.id === past.id);
     if (existing) toggle(past.categoryId, past.id);
-    else setCategories(current => current.map(c => c.id === past.categoryId ? { ...c, items: [...c.items, { id: past.id, name: past.name, selected: true, quantity: 1 }] } : c));
+    else
+      setCategories((current) =>
+        current.map((c) =>
+          c.id === past.categoryId
+            ? {
+                ...c,
+                items: [
+                  ...c.items,
+                  { id: past.id, name: past.name, selected: true, quantity: 1 },
+                ],
+              }
+            : c,
+        ),
+      );
   };
   const shareList = async () => {
     if (!count || sharing) return;
     setSharing(true);
-    const items = selectedGroups.flatMap(category => category.items.map(item => ({ id: item.id, name: item.name, quantity: item.quantity ?? 1, category: category.name, icon: category.icon, color: category.color, checked: false })));
-    const { data, error } = await supabase.rpc("create_shared_list", { p_items: items });
-    if (error || !data) { showNotice("共有リンクを作成できませんでした"); setSharing(false); return; }
+    const items = selectedGroups.flatMap((category) =>
+      category.items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity ?? 1,
+        category: category.name,
+        icon: category.icon,
+        color: category.color,
+        checked: false,
+      })),
+    );
+    const { data, error } = await supabase.rpc("create_shared_list", {
+      p_items: items,
+    });
+    if (error || !data) {
+      showNotice("共有リンクを作成できませんでした");
+      setSharing(false);
+      return;
+    }
     const url = `${window.location.origin}/share/${data}`;
-    try { await navigator.clipboard.writeText(url); setShareOpen(false); showNotice("共有リンクをコピーしました"); }
-    catch { showNotice("リンクをコピーできませんでした"); }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareOpen(false);
+      showNotice("共有リンクをコピーしました");
+    } catch {
+      showNotice("リンクをコピーできませんでした");
+    }
     setSharing(false);
   };
 
-  if (active) return <main className="app detail-view">
-    <header className="detail-header"><button className="back" onClick={() => { setActiveId(null); setAdding(false); }} aria-label="カテゴリ一覧に戻る">‹</button><div><p className="eyebrow">カテゴリー</p><h1><span>{active.icon}</span>{active.name}</h1></div><div className="count-badge">{active.items.filter(i => i.selected).length}</div></header>
-    <section className="item-list" aria-label={`${active.name}の商品`}>
-      {active.items.map(item => <div key={item.id} className={`item-row ${item.selected ? "selected" : ""}`}><button className="item-toggle" onClick={() => toggle(active.id, item.id)} aria-pressed={item.selected}><span>{item.name}</span><span className="check">✓</span></button>{item.selected && <div className="quantity-control" aria-label={`${item.name}の個数`}><button onClick={() => setQuantity(active.id, item.id, (item.quantity ?? 1) - 1)} disabled={(item.quantity ?? 1) <= 1} aria-label="1個減らす">−</button><strong>{item.quantity ?? 1}</strong><button onClick={() => setQuantity(active.id, item.id, (item.quantity ?? 1) + 1)} aria-label="1個増やす">＋</button></div>}</div>)}
-    </section>
-    {adding ? <form className="add-form" onSubmit={addItem}><input autoFocus value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="商品名を入力" maxLength={40} aria-label="新しい商品名"/><button type="submit" disabled={!newItem.trim()}>追加</button><button type="button" className="cancel" onClick={() => setAdding(false)}>キャンセル</button></form> : <button className="add-button" onClick={() => setAdding(true)}><span>＋</span> 商品を追加</button>}
-    <p className="detail-hint">タップした商品が今回の買い物に追加されます</p>
-  </main>;
-
-  return <main className="app">
-    <header className="topbar"><div className="brand"><div className="brand-mark">か</div><div><p className="eyebrow">FAMILY SHOPPING</p><h1>かご</h1></div></div><button className="share-trigger" onClick={() => setShareOpen(true)} aria-label="買い物リストを共有"><span>↗</span> 共有</button></header>
-    {view === "select" ? <>
-      <section className="intro"><div><p className="date">今日の買い物</p><h2>何を買いますか？</h2><p>{selectTab === "category" ? "カテゴリーから選んでください" : "以前の買い物から選べます"}</p></div><div className="basket-count"><strong>{count}</strong><span>点</span></div></section>
-      <button className="clear" onClick={clearAll} disabled={!count}><span>↻</span><span><strong>すべて解除</strong><small>次の買い物をはじめる</small></span></button>
-      <div className="select-tabs" role="tablist" aria-label="商品の選び方"><button role="tab" aria-selected={selectTab === "category"} className={selectTab === "category" ? "active" : ""} onClick={() => setSelectTab("category")}>カテゴリから</button><button role="tab" aria-selected={selectTab === "history"} className={selectTab === "history" ? "active" : ""} onClick={() => setSelectTab("history")}>買い物履歴{history.length > 0 && <span>{history.length}</span>}</button></div>
-      {selectTab === "category" ? <section className="category-grid" aria-label="商品カテゴリー">{categories.map(c => { const n = c.items.filter(i => i.selected).length; return <button key={c.id} className="category-card" style={{ background: c.color }} onClick={() => setActiveId(c.id)}><span className="category-icon">{c.icon}</span><span className="category-name">{c.name}</span><span className="category-meta">{n ? `${n}点 選択中` : `${c.items.length}品`}</span>{n > 0 && <span className="dot">{n}</span>}</button>; })}<button className="category-card add-category-card" onClick={() => setCategoryOpen(true)}><span className="add-category-icon">＋</span><span className="category-name">カテゴリを追加</span><span className="category-meta">自由に作成できます</span></button></section> : <section className="history-list" aria-label="選択したことがある商品">{history.length ? <div className="history-product-list">{history.map(past => { const selected = categories.find(c => c.id === past.categoryId)?.items.find(item => item.id === past.id)?.selected ?? false; return <button key={`${past.categoryId}-${past.id}`} className={selected ? "selected" : ""} onClick={() => toggleFromHistory(past)} aria-pressed={selected}><span className="history-product-icon">{past.icon}</span><span><strong>{past.name}</strong><small>{past.categoryName}</small></span><i>✓</i></button>; })}</div> : <div className="history-empty"><span>◷</span><h3>まだ履歴がありません</h3><p>商品を選ぶと、次回からここで<br/>すばやく選べるようになります。</p></div>}</section>}
-    </> : <section className="shopping-view"><div className="shopping-title"><p className="date">今回の買い物</p><h2>{count ? `${count}点の買うもの` : "買うものはありません"}</h2><p>{count ? "カテゴリーごとに確認できます" : "「選ぶ」から商品を追加しましょう"}</p></div>{selectedGroups.map(c => <div className="shopping-group" key={c.id}><div className="group-heading"><span style={{ background: c.color }}>{c.icon}</span><h3>{c.name}</h3><small>{c.items.length}点</small></div>{c.items.map(item => <div className="shopping-item" key={item.id}><button className="remove-item" onClick={() => toggle(c.id, item.id)} aria-label={`${item.name}をリストから外す`}><span className="open-circle"></span>{item.name}</button><div className="quantity-control"><button onClick={() => setQuantity(c.id, item.id, (item.quantity ?? 1) - 1)} disabled={(item.quantity ?? 1) <= 1}>−</button><strong>{item.quantity ?? 1}</strong><button onClick={() => setQuantity(c.id, item.id, (item.quantity ?? 1) + 1)}>＋</button></div></div>)}</div>)}</section>}
-    <nav className="bottom-nav" aria-label="メインナビゲーション"><button className={view === "select" ? "active" : ""} onClick={() => setView("select")}><span>⊞</span>選ぶ</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><span>☷</span>買うもの{count > 0 && <i>{count}</i>}</button></nav>
-    {undo && <div className="toast" role="status"><span>すべて解除しました</span><button onClick={() => { setCategories(undo); setUndo(null); }}>元に戻す</button></div>}
-    {notice && <div className="notice" role="status">{notice}</div>}
-    {categoryOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setCategoryOpen(false); }}><form className="category-modal" onSubmit={addCategory}><button type="button" className="modal-close" onClick={() => setCategoryOpen(false)} aria-label="閉じる">×</button><div className="category-preview">{categoryIcon || "🛒"}</div><h2>カテゴリを追加</h2><p>絵文字と名前を決めてください</p><div className="category-fields"><label><span>絵文字</span><input className="emoji-input" value={categoryIcon} onChange={e => setCategoryIcon(e.target.value)} maxLength={4} aria-label="カテゴリの絵文字"/></label><label><span>カテゴリ名</span><input autoFocus value={categoryName} onChange={e => setCategoryName(e.target.value)} maxLength={20} placeholder="例：ペット用品"/></label></div><button className="create-category" type="submit" disabled={!categoryName.trim()}>追加する</button></form></div>}
-    {shareOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setShareOpen(false); }}><section className="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title"><button className="modal-close" onClick={() => setShareOpen(false)} aria-label="閉じる">×</button><div className="share-icon">↗</div><h2 id="share-title">買い物メモを共有</h2><p>選んだ{count}点をチェックリストにして共有します。リンクを受け取った人は、買った商品をチェックできます。</p><button className="copy-button" onClick={shareList} disabled={!count || sharing}>{sharing ? "リンクを作成中…" : "共有リンクをコピー"}</button>{!count && <small>共有する商品を先に選んでください。</small>}<div className="share-note"><span>✓</span><div><strong>リンクは30日間有効です</strong><p>リンクを知っている人だけが開けます。</p></div></div></section></div>}
-  </main>;
+  return (
+    <main className="app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">
+            <ShoppingBag />
+          </div>
+          <div>
+            <p className="eyebrow">SHARED SHOPPING LIST</p>
+            <h1>お買い物メモ</h1>
+          </div>
+        </div>
+        <div className="top-actions">
+          <button
+            className="share-trigger"
+            onClick={() => setShareOpen(true)}
+            aria-label="買い物リストを共有"
+          >
+            <Send />
+            共有
+          </button>
+          <div className="header-count" aria-label={`選択商品 ${count}点`}>
+            <strong>{count}</strong>
+            <span>点</span>
+          </div>
+        </div>
+      </header>
+      {view === "select" ? (
+        <>
+          <div className="selection-tools">
+            <div
+              className="select-tabs"
+              role="tablist"
+              aria-label="商品の選び方"
+            >
+              <button
+                role="tab"
+                aria-selected={selectTab === "category"}
+                className={selectTab === "category" ? "active" : ""}
+                onClick={() => setSelectTab("category")}
+              >
+                カテゴリ
+              </button>
+              <button
+                role="tab"
+                aria-selected={selectTab === "history"}
+                className={selectTab === "history" ? "active" : ""}
+                onClick={() => setSelectTab("history")}
+              >
+                履歴{history.length > 0 && <span>{history.length}</span>}
+              </button>
+            </div>
+            <button className="clear" onClick={clearAll} disabled={!count}>
+              <RotateCcw />
+              <span>
+                <strong>選択解除</strong>
+                <small>すべて解除</small>
+              </span>
+            </button>
+          </div>
+          {selectTab === "category" ? (
+            <>
+              <section className="category-grid" aria-label="商品カテゴリー">
+                {categories.map((c) => {
+                  const n = c.items.filter((i) => i.selected).length;
+                  const isActive = activeId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      className={`category-card ${isActive ? "active" : ""}`}
+                      style={{ background: c.color }}
+                      onClick={() => {
+                        setActiveId(isActive ? null : c.id);
+                        setAdding(false);
+                      }}
+                      aria-expanded={isActive}
+                    >
+                      <span className="category-icon">
+                        <CategoryIcon name={c.icon} />
+                      </span>
+                      <span className="category-name">{c.name}</span>
+                      <span className="category-meta">
+                        {n ? `${n}点 選択中` : `${c.items.length}品`}
+                      </span>
+                      {isActive ? (
+                        <ChevronDown className="card-arrow" />
+                      ) : (
+                        <ChevronRight className="card-arrow" />
+                      )}
+                      {n > 0 && <span className="dot">{n}</span>}
+                    </button>
+                  );
+                })}
+                <button
+                  className="category-card add-category-card"
+                  onClick={() => setCategoryOpen(true)}
+                >
+                  <span className="add-category-icon">
+                    <Plus />
+                  </span>
+                  <span className="category-name">カテゴリを追加</span>
+                  <span className="category-meta">自由に作成できます</span>
+                </button>
+              </section>
+              {active && (
+                <section
+                  className="inline-category-panel"
+                  aria-label={`${active.name}の商品`}
+                >
+                  <header>
+                    <span style={{ background: active.color }}>
+                      <CategoryIcon name={active.icon} size={20} />
+                    </span>
+                    <div>
+                      <p>商品選択</p>
+                      <h3>{active.name}</h3>
+                    </div>
+                    <strong>
+                      {active.items.filter((item) => item.selected).length}点
+                    </strong>
+                    <button
+                      onClick={() => {
+                        setActiveId(null);
+                        setAdding(false);
+                      }}
+                      aria-label="商品一覧を閉じる"
+                    >
+                      <X />
+                    </button>
+                  </header>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={reorderItems}
+                  >
+                    <SortableContext
+                      items={active.items.map((item) => item.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="item-list">
+                        {active.items.map((item) => (
+                          <SortableItemRow
+                            key={item.id}
+                            item={item}
+                            onToggle={() => toggle(active.id, item.id)}
+                            onQuantity={(quantity) =>
+                              setQuantity(active.id, item.id, quantity)
+                            }
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                  {adding ? (
+                    <form className="add-form" onSubmit={addItem}>
+                      <input
+                        autoFocus
+                        value={newItem}
+                        onChange={(e) => setNewItem(e.target.value)}
+                        placeholder="商品名を入力"
+                        maxLength={40}
+                        aria-label="新しい商品名"
+                      />
+                      <button type="submit" disabled={!newItem.trim()}>
+                        追加
+                      </button>
+                      <button
+                        type="button"
+                        className="cancel"
+                        onClick={() => setAdding(false)}
+                      >
+                        キャンセル
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      className="add-button"
+                      onClick={() => setAdding(true)}
+                    >
+                      <CirclePlus /> 商品を追加
+                    </button>
+                  )}
+                </section>
+              )}
+            </>
+          ) : (
+            <section
+              className="history-list"
+              aria-label="選択したことがある商品"
+            >
+              {history.length ? (
+                <div className="history-product-list">
+                  {history.map((past) => {
+                    const selected =
+                      categories
+                        .find((c) => c.id === past.categoryId)
+                        ?.items.find((item) => item.id === past.id)?.selected ??
+                      false;
+                    return (
+                      <button
+                        key={`${past.categoryId}-${past.id}`}
+                        className={selected ? "selected" : ""}
+                        onClick={() => toggleFromHistory(past)}
+                        aria-pressed={selected}
+                      >
+                        <span className="history-product-icon">
+                          <CategoryIcon name={past.icon} size={17} />
+                        </span>
+                        <span>
+                          <strong>{past.name}</strong>
+                          <small>{past.categoryName}</small>
+                        </span>
+                        <i>
+                          <Check />
+                        </i>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="history-empty">
+                  <span>
+                    <Clock3 />
+                  </span>
+                  <h3>まだ履歴がありません</h3>
+                  <p>
+                    商品を選ぶと、次回からここで
+                    <br />
+                    すばやく選べるようになります。
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+        </>
+      ) : (
+        <section className="shopping-view">
+          {!count && (
+            <div className="list-empty">
+              <span>
+                <ListChecks />
+              </span>
+              <h2>リストは空です</h2>
+              <p>買い物に必要な商品を追加してください</p>
+              <button onClick={() => setView("select")}>商品を選択</button>
+            </div>
+          )}
+          {selectedGroups.map((c) => (
+            <div className="shopping-group" key={c.id}>
+              <div className="group-heading">
+                <span style={{ background: c.color }}>
+                  <CategoryIcon name={c.icon} size={18} />
+                </span>
+                <h3>{c.name}</h3>
+                <small>{c.items.length}点</small>
+              </div>
+              {c.items.map((item) => (
+                <div className="shopping-item" key={item.id}>
+                  <button
+                    className="remove-item"
+                    onClick={() => toggle(c.id, item.id)}
+                    aria-label={`${item.name}をリストから外す`}
+                  >
+                    <span className="open-circle"></span>
+                    {item.name}
+                  </button>
+                  <div className="quantity-control">
+                    <button
+                      onClick={() =>
+                        setQuantity(c.id, item.id, (item.quantity ?? 1) - 1)
+                      }
+                      disabled={(item.quantity ?? 1) <= 1}
+                    >
+                      <Minus />
+                    </button>
+                    <strong>{item.quantity ?? 1}</strong>
+                    <button
+                      onClick={() =>
+                        setQuantity(c.id, item.id, (item.quantity ?? 1) + 1)
+                      }
+                    >
+                      <Plus />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </section>
+      )}
+      <nav className="bottom-nav" aria-label="メインナビゲーション">
+        <button
+          className={view === "select" ? "active" : ""}
+          onClick={() => setView("select")}
+        >
+          <span>
+            <SlidersHorizontal />
+          </span>
+          商品選択
+        </button>
+        <button
+          className={view === "list" ? "active" : ""}
+          onClick={() => setView("list")}
+        >
+          <span>
+            <ListChecks />
+          </span>
+          買い物リスト{count > 0 && <i>{count}</i>}
+        </button>
+      </nav>
+      {undo && (
+        <div className="toast" role="status">
+          <span>すべて解除しました</span>
+          <button
+            onClick={() => {
+              setCategories(undo);
+              setUndo(null);
+            }}
+          >
+            元に戻す
+          </button>
+        </div>
+      )}
+      {notice && (
+        <div className="notice" role="status">
+          {notice}
+        </div>
+      )}
+      {categoryOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setCategoryOpen(false);
+          }}
+        >
+          <form className="category-modal" onSubmit={addCategory}>
+            <button
+              type="button"
+              className="modal-close"
+              onClick={() => setCategoryOpen(false)}
+              aria-label="閉じる"
+            >
+              <X />
+            </button>
+            <div className="category-preview">
+              <CategoryIcon name={categoryIcon} />
+            </div>
+            <h2>カテゴリを追加</h2>
+            <p>アイコンと名前を決めてください</p>
+            <div
+              className="icon-picker"
+              role="radiogroup"
+              aria-label="カテゴリのアイコン"
+            >
+              {iconChoices.map((icon) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={categoryIcon === icon}
+                  className={categoryIcon === icon ? "active" : ""}
+                  key={icon}
+                  onClick={() => setCategoryIcon(icon)}
+                >
+                  <CategoryIcon name={icon} size={20} />
+                </button>
+              ))}
+            </div>
+            <div className="category-fields">
+              <label>
+                <span>カテゴリ名</span>
+                <input
+                  autoFocus
+                  value={categoryName}
+                  onChange={(e) => setCategoryName(e.target.value)}
+                  maxLength={20}
+                  placeholder="例：ペット用品"
+                />
+              </label>
+            </div>
+            <button
+              className="create-category"
+              type="submit"
+              disabled={!categoryName.trim()}
+            >
+              追加する
+            </button>
+          </form>
+        </div>
+      )}
+      {shareOpen && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShareOpen(false);
+          }}
+        >
+          <section
+            className="share-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-title"
+          >
+            <button
+              className="modal-close"
+              onClick={() => setShareOpen(false)}
+              aria-label="閉じる"
+            >
+              <X />
+            </button>
+            <div className="share-icon">
+              <Send />
+            </div>
+            <h2 id="share-title">買い物メモを共有</h2>
+            <p>
+              選んだ{count}
+              点をチェックリストにして共有します。リンクを受け取った人は、買った商品をチェックできます。
+            </p>
+            <button
+              className="copy-button"
+              onClick={shareList}
+              disabled={!count || sharing}
+            >
+              {sharing ? "リンクを作成中…" : "共有リンクをコピー"}
+            </button>
+            {!count && <small>共有する商品を先に選んでください。</small>}
+            <div className="share-note">
+              <span>
+                <Check />
+              </span>
+              <div>
+                <strong>リンクは30日間有効です</strong>
+                <p>リンクを知っている人だけが開けます。</p>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  );
 }

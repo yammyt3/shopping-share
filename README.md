@@ -1,4 +1,4 @@
-# shopping-share（かご）
+# shopping-share（お買い物メモ）
 
 スーパーで買うものを選び、買い物メモとして共有するNext.jsアプリです。
 
