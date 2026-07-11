@@ -29,6 +29,9 @@ export default function Home() {
   const [newItem, setNewItem] = useState("");
   const [undo, setUndo] = useState<Category[] | null>(null);
   const [ready, setReady] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [importCode, setImportCode] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem("kago-categories");
@@ -49,6 +52,21 @@ export default function Home() {
     setCategories(cs => cs.map(c => c.id === activeId ? { ...c, items: [...c.items, { id: crypto.randomUUID(), name, selected: true }] } : c));
     setNewItem(""); setAdding(false);
   };
+  const showNotice = (message: string) => { setNotice(message); setTimeout(() => setNotice(""), 3000); };
+  const makeShareCode = () => `KAGO1:${btoa(unescape(encodeURIComponent(JSON.stringify(categories))))}`;
+  const copyShareCode = async () => {
+    try { await navigator.clipboard.writeText(makeShareCode()); showNotice("共有コードをコピーしました"); }
+    catch { showNotice("コピーできませんでした"); }
+  };
+  const importSharedData = () => {
+    try {
+      const raw = importCode.trim();
+      if (!raw.startsWith("KAGO1:")) throw new Error();
+      const parsed = JSON.parse(decodeURIComponent(escape(atob(raw.slice(6))))) as Category[];
+      if (!Array.isArray(parsed) || !parsed.every(c => c.id && c.name && Array.isArray(c.items))) throw new Error();
+      setCategories(parsed); setShareOpen(false); setImportCode(""); showNotice("買い物リストを取り込みました");
+    } catch { showNotice("共有コードを確認してください"); }
+  };
 
   if (active) return <main className="app detail-view">
     <header className="detail-header"><button className="back" onClick={() => { setActiveId(null); setAdding(false); }} aria-label="カテゴリ一覧に戻る">‹</button><div><p className="eyebrow">カテゴリー</p><h1><span>{active.icon}</span>{active.name}</h1></div><div className="count-badge">{active.items.filter(i => i.selected).length}</div></header>
@@ -60,7 +78,7 @@ export default function Home() {
   </main>;
 
   return <main className="app">
-    <header className="topbar"><div className="brand"><div className="brand-mark">か</div><div><p className="eyebrow">FAMILY SHOPPING</p><h1>かご</h1></div></div><button className="people" aria-label="共有メンバー">●● <span>2</span></button></header>
+    <header className="topbar"><div className="brand"><div className="brand-mark">か</div><div><p className="eyebrow">FAMILY SHOPPING</p><h1>かご</h1></div></div><button className="share-trigger" onClick={() => setShareOpen(true)} aria-label="買い物リストを共有"><span>↗</span> 共有</button></header>
     {view === "select" ? <>
       <section className="intro"><div><p className="date">今日の買い物</p><h2>何を買いますか？</h2><p>カテゴリーから選んでください</p></div><div className="basket-count"><strong>{count}</strong><span>点</span></div></section>
       <button className="clear" onClick={clearAll} disabled={!count}><span>↻</span><span><strong>すべて解除</strong><small>次の買い物をはじめる</small></span></button>
@@ -68,5 +86,7 @@ export default function Home() {
     </> : <section className="shopping-view"><div className="shopping-title"><p className="date">今回の買い物</p><h2>{count ? `${count}点の買うもの` : "買うものはありません"}</h2><p>{count ? "カテゴリーごとに確認できます" : "「選ぶ」から商品を追加しましょう"}</p></div>{selectedGroups.map(c => <div className="shopping-group" key={c.id}><div className="group-heading"><span style={{ background: c.color }}>{c.icon}</span><h3>{c.name}</h3><small>{c.items.length}点</small></div>{c.items.map(item => <button key={item.id} onClick={() => toggle(c.id, item.id)}><span className="open-circle"></span>{item.name}<span className="remove">×</span></button>)}</div>)}</section>}
     <nav className="bottom-nav" aria-label="メインナビゲーション"><button className={view === "select" ? "active" : ""} onClick={() => setView("select")}><span>⊞</span>選ぶ</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><span>☷</span>買うもの{count > 0 && <i>{count}</i>}</button></nav>
     {undo && <div className="toast" role="status"><span>すべて解除しました</span><button onClick={() => { setCategories(undo); setUndo(null); }}>元に戻す</button></div>}
+    {notice && <div className="notice" role="status">{notice}</div>}
+    {shareOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setShareOpen(false); }}><section className="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title"><button className="modal-close" onClick={() => setShareOpen(false)} aria-label="閉じる">×</button><div className="share-icon">↗</div><h2 id="share-title">買い物リストを共有</h2><p>サーバーは使いません。共有コードを相手に送り、相手の「かご」で取り込んでもらいます。</p><button className="copy-button" onClick={copyShareCode}>共有コードをコピー</button><div className="divider"><span>受け取った場合</span></div><label htmlFor="share-code">共有コードを貼り付け</label><textarea id="share-code" value={importCode} onChange={e => setImportCode(e.target.value)} placeholder="KAGO1: から始まるコード"/><button className="import-button" disabled={!importCode.trim()} onClick={importSharedData}>このリストを取り込む</button><small>取り込むと、この端末の現在のリストが置き換わります。</small></section></div>}
   </main>;
 }
