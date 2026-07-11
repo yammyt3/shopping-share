@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 type Item = { id: string; name: string; selected: boolean };
 type Category = { id: string; name: string; icon: string; color: string; items: Item[] };
@@ -22,23 +23,22 @@ const initialCategories: Category[] = [
 ];
 
 export default function Home() {
-  const [categories, setCategories] = useState(initialCategories);
+  const [categories, setCategories] = useState<Category[]>(() => {
+    if (typeof window === "undefined") return initialCategories;
+    const saved = localStorage.getItem("kago-categories");
+    if (saved) try { return JSON.parse(saved) as Category[]; } catch { /* use defaults */ }
+    return initialCategories;
+  });
   const [view, setView] = useState<"select" | "list">("select");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState("");
   const [undo, setUndo] = useState<Category[] | null>(null);
-  const [ready, setReady] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [importCode, setImportCode] = useState("");
   const [notice, setNotice] = useState("");
+  const [sharing, setSharing] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("kago-categories");
-    if (saved) try { setCategories(JSON.parse(saved)); } catch { /* use defaults */ }
-    setReady(true);
-  }, []);
-  useEffect(() => { if (ready) localStorage.setItem("kago-categories", JSON.stringify(categories)); }, [categories, ready]);
+  useEffect(() => { localStorage.setItem("kago-categories", JSON.stringify(categories)); }, [categories]);
   useEffect(() => { if (!undo) return; const timer = setTimeout(() => setUndo(null), 6000); return () => clearTimeout(timer); }, [undo]);
 
   const active = categories.find(c => c.id === activeId);
@@ -53,19 +53,16 @@ export default function Home() {
     setNewItem(""); setAdding(false);
   };
   const showNotice = (message: string) => { setNotice(message); setTimeout(() => setNotice(""), 3000); };
-  const makeShareCode = () => `KAGO1:${btoa(unescape(encodeURIComponent(JSON.stringify(categories))))}`;
-  const copyShareCode = async () => {
-    try { await navigator.clipboard.writeText(makeShareCode()); showNotice("共有コードをコピーしました"); }
-    catch { showNotice("コピーできませんでした"); }
-  };
-  const importSharedData = () => {
-    try {
-      const raw = importCode.trim();
-      if (!raw.startsWith("KAGO1:")) throw new Error();
-      const parsed = JSON.parse(decodeURIComponent(escape(atob(raw.slice(6))))) as Category[];
-      if (!Array.isArray(parsed) || !parsed.every(c => c.id && c.name && Array.isArray(c.items))) throw new Error();
-      setCategories(parsed); setShareOpen(false); setImportCode(""); showNotice("買い物リストを取り込みました");
-    } catch { showNotice("共有コードを確認してください"); }
+  const shareList = async () => {
+    if (!count || sharing) return;
+    setSharing(true);
+    const items = selectedGroups.flatMap(category => category.items.map(item => ({ id: item.id, name: item.name, category: category.name, icon: category.icon, color: category.color, checked: false })));
+    const { data, error } = await supabase.rpc("create_shared_list", { p_items: items });
+    if (error || !data) { showNotice("共有リンクを作成できませんでした"); setSharing(false); return; }
+    const url = `${window.location.origin}/share/${data}`;
+    try { await navigator.clipboard.writeText(url); setShareOpen(false); showNotice("共有リンクをコピーしました"); }
+    catch { showNotice("リンクをコピーできませんでした"); }
+    setSharing(false);
   };
 
   if (active) return <main className="app detail-view">
@@ -87,6 +84,6 @@ export default function Home() {
     <nav className="bottom-nav" aria-label="メインナビゲーション"><button className={view === "select" ? "active" : ""} onClick={() => setView("select")}><span>⊞</span>選ぶ</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><span>☷</span>買うもの{count > 0 && <i>{count}</i>}</button></nav>
     {undo && <div className="toast" role="status"><span>すべて解除しました</span><button onClick={() => { setCategories(undo); setUndo(null); }}>元に戻す</button></div>}
     {notice && <div className="notice" role="status">{notice}</div>}
-    {shareOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setShareOpen(false); }}><section className="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title"><button className="modal-close" onClick={() => setShareOpen(false)} aria-label="閉じる">×</button><div className="share-icon">↗</div><h2 id="share-title">買い物リストを共有</h2><p>サーバーは使いません。共有コードを相手に送り、相手の「かご」で取り込んでもらいます。</p><button className="copy-button" onClick={copyShareCode}>共有コードをコピー</button><div className="divider"><span>受け取った場合</span></div><label htmlFor="share-code">共有コードを貼り付け</label><textarea id="share-code" value={importCode} onChange={e => setImportCode(e.target.value)} placeholder="KAGO1: から始まるコード"/><button className="import-button" disabled={!importCode.trim()} onClick={importSharedData}>このリストを取り込む</button><small>取り込むと、この端末の現在のリストが置き換わります。</small></section></div>}
+    {shareOpen && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setShareOpen(false); }}><section className="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title"><button className="modal-close" onClick={() => setShareOpen(false)} aria-label="閉じる">×</button><div className="share-icon">↗</div><h2 id="share-title">買い物メモを共有</h2><p>選んだ{count}点をチェックリストにして共有します。リンクを受け取った人は、買った商品をチェックできます。</p><button className="copy-button" onClick={shareList} disabled={!count || sharing}>{sharing ? "リンクを作成中…" : "共有リンクをコピー"}</button>{!count && <small>共有する商品を先に選んでください。</small>}<div className="share-note"><span>✓</span><div><strong>リンクは30日間有効です</strong><p>リンクを知っている人だけが開けます。</p></div></div></section></div>}
   </main>;
 }
