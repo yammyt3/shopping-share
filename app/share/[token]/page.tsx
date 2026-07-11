@@ -4,7 +4,7 @@ import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-type SharedItem = { id: string; name: string; category: string; icon: string; color: string; checked: boolean };
+type SharedItem = { id: string; name: string; quantity?: number; category: string; icon: string; color: string; checked: boolean };
 
 export default function SharedListPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -36,7 +36,7 @@ export default function SharedListPage({ params }: { params: Promise<{ token: st
   return <main className="shared-app">
     <header className="shared-header"><div className="brand"><div className="brand-mark">か</div><div><p className="eyebrow">SHARED SHOPPING LIST</p><h1>お買い物メモ</h1></div></div><span className="received">受け取り</span></header>
     <section className="shared-summary"><p className="date">今回の買い物</p><h2>{checked === items.length ? "お買い物完了！" : `あと${items.length - checked}点`}</h2><div className="progress"><i style={{ width: `${items.length ? checked / items.length * 100 : 0}%` }}/></div><p>{checked} / {items.length}点 チェック済み</p></section>
-    <section>{groups.map(group => <div className="check-group" key={group.items[0].category}><div className="group-heading"><span style={{ background: group.color }}>{group.icon}</span><h3>{group.items[0].category}</h3><small>{group.items.filter(i => i.checked).length}/{group.items.length}</small></div>{group.items.map(item => <button key={item.id} className={item.checked ? "done" : ""} onClick={() => toggle(item)} aria-pressed={item.checked}><span className="check-circle">✓</span><span>{item.name}</span></button>)}</div>)}</section>
+    <section>{groups.map(group => <div className="check-group" key={group.items[0].category}><div className="group-heading"><span style={{ background: group.color }}>{group.icon}</span><h3>{group.items[0].category}</h3><small>{group.items.filter(i => i.checked).length}/{group.items.length}</small></div>{group.items.map(item => <button key={item.id} className={item.checked ? "done" : ""} onClick={() => toggle(item)} aria-pressed={item.checked}><span className="check-circle">✓</span><span>{item.name}</span>{(item.quantity ?? 1) > 1 && <strong className="shared-quantity">×{item.quantity}</strong>}</button>)}</div>)}</section>
     <p className="shared-footnote">チェック状態は、このリンクを開いた人と共有されます</p>
   </main>;
 }
