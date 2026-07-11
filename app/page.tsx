@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase";
 
 type Item = { id: string; name: string; selected: boolean };
 type Category = { id: string; name: string; icon: string; color: string; items: Item[] };
+type HistoryItem = { id: string; name: string; categoryId: string; categoryName: string; icon: string };
+type HistoryEntry = { id: string; createdAt: string; items: HistoryItem[] };
 
 const initialCategories: Category[] = [
   { id: "vegetables", name: "野菜", icon: "🥬", color: "#E7F0D9", items: ["キャベツ", "レタス", "トマト", "きゅうり", "玉ねぎ", "にんじん", "じゃがいも"].map((name, i) => ({ id: `v${i}`, name, selected: i === 1 || i === 3 })) },
@@ -30,6 +32,13 @@ export default function Home() {
     return initialCategories;
   });
   const [view, setView] = useState<"select" | "list">("select");
+  const [selectTab, setSelectTab] = useState<"category" | "history">("category");
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
+    if (typeof window === "undefined") return [];
+    const saved = localStorage.getItem("kago-history");
+    if (saved) try { return JSON.parse(saved) as HistoryEntry[]; } catch { /* empty history */ }
+    return [];
+  });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState("");
@@ -39,6 +48,7 @@ export default function Home() {
   const [sharing, setSharing] = useState(false);
 
   useEffect(() => { localStorage.setItem("kago-categories", JSON.stringify(categories)); }, [categories]);
+  useEffect(() => { localStorage.setItem("kago-history", JSON.stringify(history)); }, [history]);
   useEffect(() => { if (!undo) return; const timer = setTimeout(() => setUndo(null), 6000); return () => clearTimeout(timer); }, [undo]);
 
   const active = categories.find(c => c.id === activeId);
@@ -53,12 +63,27 @@ export default function Home() {
     setNewItem(""); setAdding(false);
   };
   const showNotice = (message: string) => { setNotice(message); setTimeout(() => setNotice(""), 3000); };
+  const selectFromHistory = (entry: HistoryEntry) => {
+    setCategories(current => current.map(category => {
+      const pastItems = entry.items.filter(item => item.categoryId === category.id);
+      if (!pastItems.length) return category;
+      const pastIds = new Set(pastItems.map(item => item.id));
+      const existingIds = new Set(category.items.map(item => item.id));
+      return { ...category, items: [
+        ...category.items.map(item => pastIds.has(item.id) ? { ...item, selected: true } : item),
+        ...pastItems.filter(item => !existingIds.has(item.id)).map(item => ({ id: item.id, name: item.name, selected: true })),
+      ] };
+    }));
+    showNotice(`${entry.items.length}点を追加しました`);
+  };
   const shareList = async () => {
     if (!count || sharing) return;
     setSharing(true);
     const items = selectedGroups.flatMap(category => category.items.map(item => ({ id: item.id, name: item.name, category: category.name, icon: category.icon, color: category.color, checked: false })));
     const { data, error } = await supabase.rpc("create_shared_list", { p_items: items });
     if (error || !data) { showNotice("共有リンクを作成できませんでした"); setSharing(false); return; }
+    const historyItems = selectedGroups.flatMap(category => category.items.map(item => ({ id: item.id, name: item.name, categoryId: category.id, categoryName: category.name, icon: category.icon })));
+    setHistory(current => [{ id: data, createdAt: new Date().toISOString(), items: historyItems }, ...current].slice(0, 20));
     const url = `${window.location.origin}/share/${data}`;
     try { await navigator.clipboard.writeText(url); setShareOpen(false); showNotice("共有リンクをコピーしました"); }
     catch { showNotice("リンクをコピーできませんでした"); }
@@ -77,9 +102,10 @@ export default function Home() {
   return <main className="app">
     <header className="topbar"><div className="brand"><div className="brand-mark">か</div><div><p className="eyebrow">FAMILY SHOPPING</p><h1>かご</h1></div></div><button className="share-trigger" onClick={() => setShareOpen(true)} aria-label="買い物リストを共有"><span>↗</span> 共有</button></header>
     {view === "select" ? <>
-      <section className="intro"><div><p className="date">今日の買い物</p><h2>何を買いますか？</h2><p>カテゴリーから選んでください</p></div><div className="basket-count"><strong>{count}</strong><span>点</span></div></section>
+      <section className="intro"><div><p className="date">今日の買い物</p><h2>何を買いますか？</h2><p>{selectTab === "category" ? "カテゴリーから選んでください" : "以前の買い物から選べます"}</p></div><div className="basket-count"><strong>{count}</strong><span>点</span></div></section>
       <button className="clear" onClick={clearAll} disabled={!count}><span>↻</span><span><strong>すべて解除</strong><small>次の買い物をはじめる</small></span></button>
-      <section className="category-grid" aria-label="商品カテゴリー">{categories.map(c => { const n = c.items.filter(i => i.selected).length; return <button key={c.id} className="category-card" style={{ background: c.color }} onClick={() => setActiveId(c.id)}><span className="category-icon">{c.icon}</span><span className="category-name">{c.name}</span><span className="category-meta">{n ? `${n}点 選択中` : `${c.items.length}品`}</span>{n > 0 && <span className="dot">{n}</span>}</button>; })}</section>
+      <div className="select-tabs" role="tablist" aria-label="商品の選び方"><button role="tab" aria-selected={selectTab === "category"} className={selectTab === "category" ? "active" : ""} onClick={() => setSelectTab("category")}>カテゴリから</button><button role="tab" aria-selected={selectTab === "history"} className={selectTab === "history" ? "active" : ""} onClick={() => setSelectTab("history")}>買い物履歴{history.length > 0 && <span>{history.length}</span>}</button></div>
+      {selectTab === "category" ? <section className="category-grid" aria-label="商品カテゴリー">{categories.map(c => { const n = c.items.filter(i => i.selected).length; return <button key={c.id} className="category-card" style={{ background: c.color }} onClick={() => setActiveId(c.id)}><span className="category-icon">{c.icon}</span><span className="category-name">{c.name}</span><span className="category-meta">{n ? `${n}点 選択中` : `${c.items.length}品`}</span>{n > 0 && <span className="dot">{n}</span>}</button>; })}</section> : <section className="history-list" aria-label="買い物履歴">{history.length ? history.map(entry => <article className="history-card" key={entry.id}><div className="history-head"><div><p>{new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric", weekday: "short" }).format(new Date(entry.createdAt))}</p><h3>{entry.items.length}点の買い物</h3></div><button onClick={() => selectFromHistory(entry)}>＋ 今回も買う</button></div><div className="history-items">{entry.items.slice(0, 6).map(item => <span key={`${item.categoryId}-${item.id}`}>{item.icon} {item.name}</span>)}{entry.items.length > 6 && <span>ほか{entry.items.length - 6}点</span>}</div></article>) : <div className="history-empty"><span>◷</span><h3>まだ履歴がありません</h3><p>買い物メモを共有すると、ここから<br/>同じ商品を選べるようになります。</p></div>}</section>}
     </> : <section className="shopping-view"><div className="shopping-title"><p className="date">今回の買い物</p><h2>{count ? `${count}点の買うもの` : "買うものはありません"}</h2><p>{count ? "カテゴリーごとに確認できます" : "「選ぶ」から商品を追加しましょう"}</p></div>{selectedGroups.map(c => <div className="shopping-group" key={c.id}><div className="group-heading"><span style={{ background: c.color }}>{c.icon}</span><h3>{c.name}</h3><small>{c.items.length}点</small></div>{c.items.map(item => <button key={item.id} onClick={() => toggle(c.id, item.id)}><span className="open-circle"></span>{item.name}<span className="remove">×</span></button>)}</div>)}</section>}
     <nav className="bottom-nav" aria-label="メインナビゲーション"><button className={view === "select" ? "active" : ""} onClick={() => setView("select")}><span>⊞</span>選ぶ</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}><span>☷</span>買うもの{count > 0 && <i>{count}</i>}</button></nav>
     {undo && <div className="toast" role="status"><span>すべて解除しました</span><button onClick={() => { setCategories(undo); setUndo(null); }}>元に戻す</button></div>}
