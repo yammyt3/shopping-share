@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import Fuse from "fuse.js";
 import {
   Check,
   ChevronDown,
@@ -12,9 +13,12 @@ import {
   Minus,
   Plus,
   RotateCcw,
+  Search,
   Send,
   ShoppingBag,
   SlidersHorizontal,
+  StickyNote,
+  Trash2,
   X,
 } from "lucide-react";
 import { CategoryIcon, iconChoices } from "./category-icons";
@@ -35,6 +39,7 @@ import {
 import { SortableItemRow } from "./sortable-item-row";
 
 type Item = { id: string; name: string; selected: boolean; quantity?: number };
+type TemporaryItem = { id: string; name: string; quantity: number };
 type Category = {
   id: string;
   name: string;
@@ -50,6 +55,24 @@ type HistoryItem = {
   icon: string;
   lastSelectedAt: string;
 };
+
+type SearchableItem = {
+  itemId: string;
+  categoryId: string;
+  categoryName: string;
+  icon: string;
+  name: string;
+  normalizedName: string;
+  selected: boolean;
+};
+
+const normalizeSearchText = (value: string) =>
+  value
+    .normalize("NFKC")
+    .toLocaleLowerCase("ja")
+    .replace(/[ァ-ヶ]/g, (character) =>
+      String.fromCharCode(character.charCodeAt(0) - 0x60),
+    );
 
 const initialCategories: Category[] = [
   {
@@ -361,10 +384,15 @@ export default function Home() {
     "category",
   );
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [temporaryItems, setTemporaryItems] = useState<TemporaryItem[]>([]);
+  const [quickInput, setQuickInput] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState("");
-  const [undo, setUndo] = useState<Category[] | null>(null);
+  const [undo, setUndo] = useState<{
+    categories: Category[];
+    temporaryItems: TemporaryItem[];
+  } | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [sharing, setSharing] = useState(false);
@@ -383,6 +411,8 @@ export default function Home() {
     if (savedCategories)
       try {
         const stored = JSON.parse(savedCategories) as Category[];
+        // Hydrate browser-only persisted data after the client mounts.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setCategories(
           stored.map((category) => {
             const defaults = initialCategories.find(
@@ -413,6 +443,18 @@ export default function Home() {
       } catch {
         /* empty history */
       }
+    const savedTemporaryItems = localStorage.getItem("kago-temporary-items");
+    if (savedTemporaryItems)
+      try {
+        setTemporaryItems(
+          (JSON.parse(savedTemporaryItems) as TemporaryItem[]).map((item) => ({
+            ...item,
+            quantity: Math.max(1, Math.min(99, item.quantity ?? 1)),
+          })),
+        );
+      } catch {
+        /* empty temporary items */
+      }
     setHydrated(true);
   }, []);
   useEffect(() => {
@@ -423,6 +465,13 @@ export default function Home() {
     if (hydrated)
       localStorage.setItem("kago-item-history", JSON.stringify(history));
   }, [history, hydrated]);
+  useEffect(() => {
+    if (hydrated)
+      localStorage.setItem(
+        "kago-temporary-items",
+        JSON.stringify(temporaryItems),
+      );
+  }, [temporaryItems, hydrated]);
   useEffect(() => {
     if (!undo) return;
     const timer = setTimeout(() => setUndo(null), 6000);
@@ -452,7 +501,55 @@ export default function Home() {
         .filter((c) => c.items.length),
     [categories],
   );
-  const count = selectedGroups.reduce((sum, c) => sum + c.items.length, 0);
+  const count =
+    selectedGroups.reduce((sum, c) => sum + c.items.length, 0) +
+    temporaryItems.length;
+  const searchableItems = useMemo<SearchableItem[]>(
+    () =>
+      categories.flatMap((category) =>
+        category.items.map((item) => ({
+          itemId: item.id,
+          categoryId: category.id,
+          categoryName: category.name,
+          icon: category.icon,
+          name: item.name,
+          normalizedName: normalizeSearchText(item.name),
+          selected: item.selected,
+        })),
+      ),
+    [categories],
+  );
+  const searchResults = useMemo(() => {
+    const query = normalizeSearchText(quickInput.trim());
+    if (!query) return [];
+    const fuse = new Fuse(searchableItems, {
+      keys: ["normalizedName"],
+      includeScore: true,
+      threshold: 0.4,
+      ignoreLocation: true,
+    });
+    return fuse
+      .search(query)
+      .map(({ item, score }) => ({
+        item,
+        score: score ?? 1,
+        matchRank:
+          item.normalizedName === query
+            ? 0
+            : item.normalizedName.startsWith(query)
+              ? 1
+              : item.normalizedName.includes(query)
+                ? 2
+                : 3,
+      }))
+      .sort((a, b) => a.matchRank - b.matchRank || a.score - b.score)
+      .slice(0, 5)
+      .map(({ item }) => item);
+  }, [quickInput, searchableItems]);
+  const temporaryDuplicate = temporaryItems.some(
+    (item) =>
+      normalizeSearchText(item.name) === normalizeSearchText(quickInput.trim()),
+  );
 
   const rememberItem = (category: Category, item: Item) =>
     setHistory((current) => [
@@ -487,13 +584,14 @@ export default function Home() {
   };
   const clearAll = () => {
     if (!count) return;
-    setUndo(categories);
+    setUndo({ categories, temporaryItems });
     setCategories((cs) =>
       cs.map((c) => ({
         ...c,
         items: c.items.map((i) => ({ ...i, selected: false })),
       })),
     );
+    setTemporaryItems([]);
   };
   const setQuantity = (categoryId: string, itemId: string, quantity: number) =>
     setCategories((current) =>
@@ -510,6 +608,28 @@ export default function Home() {
           : category,
       ),
     );
+  const setTemporaryQuantity = (itemId: string, quantity: number) =>
+    setTemporaryItems((current) =>
+      current.map((item) =>
+        item.id === itemId
+          ? { ...item, quantity: Math.max(1, Math.min(99, quantity)) }
+          : item,
+      ),
+    );
+  const addTemporaryItem = () => {
+    const name = quickInput.trim();
+    if (!name) return;
+    if (temporaryDuplicate) {
+      showNotice("同じ今回限りアイテムがあります");
+      return;
+    }
+    setTemporaryItems((current) => [
+      ...current,
+      { id: crypto.randomUUID(), name, quantity: 1 },
+    ]);
+    setQuickInput("");
+    showNotice("今回限りアイテムを追加しました");
+  };
   const reorderItems = ({ active: dragged, over }: DragEndEvent) => {
     if (!activeId || !over || dragged.id === over.id) return;
     setCategories((current) =>
@@ -593,17 +713,28 @@ export default function Home() {
   const shareList = async () => {
     if (!count || sharing) return;
     setSharing(true);
-    const items = selectedGroups.flatMap((category) =>
-      category.items.map((item) => ({
+    const items = [
+      ...selectedGroups.flatMap((category) =>
+        category.items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity ?? 1,
+          category: category.name,
+          icon: category.icon,
+          color: category.color,
+          checked: false,
+        })),
+      ),
+      ...temporaryItems.map((item) => ({
         id: item.id,
         name: item.name,
-        quantity: item.quantity ?? 1,
-        category: category.name,
-        icon: category.icon,
-        color: category.color,
+        quantity: item.quantity,
+        category: "今回限り",
+        icon: "note",
+        color: "#EEE5D6",
         checked: false,
       })),
-    );
+    ];
     const { data, error } = await supabase.rpc("create_shared_list", {
       p_items: items,
     });
@@ -652,6 +783,111 @@ export default function Home() {
       </header>
       {view === "select" ? (
         <>
+          <section className="quick-add" aria-label="商品検索と今回限り追加">
+            <div className="quick-add-heading">
+              <span>
+                <Search />
+              </span>
+              <div>
+                <h2>すぐに追加</h2>
+                <p>商品を検索。なければ今回限りで追加できます</p>
+              </div>
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                addTemporaryItem();
+              }}
+            >
+              <Search aria-hidden="true" />
+              <input
+                value={quickInput}
+                onChange={(event) => setQuickInput(event.target.value)}
+                placeholder="商品名を入力"
+                aria-label="商品を検索、または今回限りで追加"
+                maxLength={40}
+                autoComplete="off"
+              />
+              {quickInput && (
+                <button
+                  type="button"
+                  className="quick-clear"
+                  onClick={() => setQuickInput("")}
+                  aria-label="入力を消去"
+                >
+                  <X />
+                </button>
+              )}
+            </form>
+            {quickInput.trim() && (
+              <div className="quick-results" aria-label="検索候補">
+                {searchResults.map((result) => (
+                  <button
+                    type="button"
+                    key={`${result.categoryId}-${result.itemId}`}
+                    className={result.selected ? "selected" : ""}
+                    onClick={() => toggle(result.categoryId, result.itemId)}
+                    aria-pressed={result.selected}
+                  >
+                    <span className="quick-result-icon">
+                      <CategoryIcon name={result.icon} size={17} />
+                    </span>
+                    <span>
+                      <strong>{result.name}</strong>
+                      <small>{result.categoryName}</small>
+                    </span>
+                    <i>
+                      <Check />
+                    </i>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="quick-create"
+                  onClick={addTemporaryItem}
+                  disabled={temporaryDuplicate}
+                >
+                  <span className="quick-result-icon">
+                    <StickyNote />
+                  </span>
+                  <span>
+                    <strong>
+                      「{quickInput.trim()}」を
+                      {temporaryDuplicate ? "追加済み" : "今回限りで追加"}
+                    </strong>
+                    <small>
+                      {temporaryDuplicate
+                        ? "同じ今回限りアイテムがあります"
+                        : "カテゴリや履歴には残りません"}
+                    </small>
+                  </span>
+                  <Plus />
+                </button>
+              </div>
+            )}
+            {temporaryItems.length > 0 && (
+              <div className="temporary-items">
+                <p>今回限り</p>
+                {temporaryItems.map((item) => (
+                  <div key={item.id}>
+                    <StickyNote />
+                    <strong>{item.name}</strong>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTemporaryItems((current) =>
+                          current.filter((currentItem) => currentItem.id !== item.id),
+                        )
+                      }
+                      aria-label={`${item.name}を削除`}
+                    >
+                      <Trash2 />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
           <div className="selection-tools">
             <div
               className="select-tabs"
@@ -911,6 +1147,51 @@ export default function Home() {
               ))}
             </div>
           ))}
+          {temporaryItems.length > 0 && (
+            <div className="shopping-group temporary-group">
+              <div className="group-heading">
+                <span style={{ background: "#EEE5D6" }}>
+                  <CategoryIcon name="note" size={18} />
+                </span>
+                <h3>今回限り</h3>
+                <small>{temporaryItems.length}点</small>
+              </div>
+              {temporaryItems.map((item) => (
+                <div className="shopping-item" key={item.id}>
+                  <button
+                    className="remove-item"
+                    onClick={() =>
+                      setTemporaryItems((current) =>
+                        current.filter((currentItem) => currentItem.id !== item.id),
+                      )
+                    }
+                    aria-label={`${item.name}をリストから外す`}
+                  >
+                    <span className="open-circle"></span>
+                    {item.name}
+                  </button>
+                  <div className="quantity-control">
+                    <button
+                      onClick={() =>
+                        setTemporaryQuantity(item.id, item.quantity - 1)
+                      }
+                      disabled={item.quantity <= 1}
+                    >
+                      <Minus />
+                    </button>
+                    <strong>{item.quantity}</strong>
+                    <button
+                      onClick={() =>
+                        setTemporaryQuantity(item.id, item.quantity + 1)
+                      }
+                    >
+                      <Plus />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
       <nav className="bottom-nav" aria-label="メインナビゲーション">
@@ -938,7 +1219,8 @@ export default function Home() {
           <span>すべて解除しました</span>
           <button
             onClick={() => {
-              setCategories(undo);
+              setCategories(undo.categories);
+              setTemporaryItems(undo.temporaryItems);
               setUndo(null);
             }}
           >

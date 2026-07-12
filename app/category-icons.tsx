@@ -2,7 +2,7 @@ import {
   Apple, Beef, Blend, BottleWine, Box, Candy, Carrot, Citrus,
   CookingPot, Croissant, CupSoda, Fish, IceCreamBowl, Milk, Package,
   PackageOpen, PawPrint, ShoppingBasket, Snowflake, Sparkles, SprayCan,
-  Wheat,
+  StickyNote, Wheat,
 } from "lucide-react";
 
 const categoryIcons = {
@@ -12,6 +12,7 @@ const categoryIcons = {
   basket: ShoppingBasket, pet: PawPrint, kitchen: CookingPot, bakery: Croissant,
   citrus: Citrus, icecream: IceCreamBowl, box: Box, open: PackageOpen,
   blend: Blend, sparkle: Sparkles,
+  note: StickyNote,
 } as const;
 
 const legacyIcons: Record<string, keyof typeof categoryIcons> = {
