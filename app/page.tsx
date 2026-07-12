@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Fuse from "fuse.js";
 import {
@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   CirclePlus,
-  Clock3,
   ListChecks,
   Minus,
   Plus,
@@ -54,6 +53,8 @@ type HistoryItem = {
   categoryName: string;
   icon: string;
   lastSelectedAt: string;
+  selectionCount: number;
+  recentSelectedAt: string[];
 };
 
 type SearchableItem = {
@@ -73,6 +74,14 @@ const normalizeSearchText = (value: string) =>
     .replace(/[ァ-ヶ]/g, (character) =>
       String.fromCharCode(character.charCodeAt(0) - 0x60),
     );
+
+const getHistoryScore = (item: HistoryItem, referenceTime: number) => {
+  const ageInDays = Math.max(
+    0,
+    (referenceTime - new Date(item.lastSelectedAt).getTime()) / 86_400_000,
+  );
+  return Math.log2(item.selectionCount + 1) * 10 + 18 / (1 + ageInDays / 14);
+};
 
 const initialCategories: Category[] = [
   {
@@ -380,10 +389,8 @@ export default function Home() {
   const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<"select" | "list">("select");
-  const [selectTab, setSelectTab] = useState<"category" | "history">(
-    "category",
-  );
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [temporaryItems, setTemporaryItems] = useState<TemporaryItem[]>([]);
   const [quickInput, setQuickInput] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -399,6 +406,7 @@ export default function Home() {
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [categoryIcon, setCategoryIcon] = useState("basket");
+  const quickInputRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, {
@@ -439,7 +447,19 @@ export default function Home() {
     const savedHistory = localStorage.getItem("kago-item-history");
     if (savedHistory)
       try {
-        setHistory(JSON.parse(savedHistory) as HistoryItem[]);
+        setHistory(
+          (JSON.parse(savedHistory) as Partial<HistoryItem>[]).map((item) => ({
+            id: item.id ?? crypto.randomUUID(),
+            name: item.name ?? "",
+            categoryId: item.categoryId ?? "",
+            categoryName: item.categoryName ?? "",
+            icon: item.icon ?? "basket",
+            lastSelectedAt: item.lastSelectedAt ?? new Date(0).toISOString(),
+            selectionCount: Math.max(1, item.selectionCount ?? 1),
+            recentSelectedAt: item.recentSelectedAt?.slice(0, 5) ??
+              (item.lastSelectedAt ? [item.lastSelectedAt] : []),
+          })),
+        );
       } catch {
         /* empty history */
       }
@@ -542,7 +562,12 @@ export default function Home() {
                 ? 2
                 : 3,
       }))
-      .sort((a, b) => a.matchRank - b.matchRank || a.score - b.score)
+      .sort(
+        (a, b) =>
+          Number(a.item.selected) - Number(b.item.selected) ||
+          a.matchRank - b.matchRank ||
+          a.score - b.score,
+      )
       .slice(0, 5)
       .map(({ item }) => item);
   }, [quickInput, searchableItems]);
@@ -550,21 +575,59 @@ export default function Home() {
     (item) =>
       normalizeSearchText(item.name) === normalizeSearchText(quickInput.trim()),
   );
+  const historyReferenceTime = history.reduce(
+    (latest, item) => Math.max(latest, new Date(item.lastSelectedAt).getTime()),
+    0,
+  );
+  const rankedHistory = useMemo(
+    () =>
+      [...history].sort(
+        (a, b) =>
+          getHistoryScore(b, historyReferenceTime) -
+          getHistoryScore(a, historyReferenceTime),
+      ),
+    [history, historyReferenceTime],
+  );
+  const frequentItems = rankedHistory.slice(0, 8);
+  const activeHistory = useMemo(
+    () => new Map(history.map((item) => [`${item.categoryId}:${item.id}`, item])),
+    [history],
+  );
+  const orderedActiveItems = useMemo(
+    () =>
+      active
+        ? [...active.items].sort((a, b) => {
+            const aHistory = activeHistory.get(`${active.id}:${a.id}`);
+            const bHistory = activeHistory.get(`${active.id}:${b.id}`);
+            return (bHistory ? getHistoryScore(bHistory, historyReferenceTime) : 0) -
+              (aHistory ? getHistoryScore(aHistory, historyReferenceTime) : 0);
+          })
+        : [],
+    [active, activeHistory, historyReferenceTime],
+  );
 
   const rememberItem = (category: Category, item: Item) =>
-    setHistory((current) => [
-      {
-        id: item.id,
-        name: item.name,
-        categoryId: category.id,
-        categoryName: category.name,
-        icon: category.icon,
-        lastSelectedAt: new Date().toISOString(),
-      },
-      ...current.filter(
-        (past) => !(past.categoryId === category.id && past.id === item.id),
-      ),
-    ]);
+    setHistory((current) => {
+      const now = new Date().toISOString();
+      const previous = current.find(
+        (past) => past.categoryId === category.id && past.id === item.id,
+      );
+      return [
+        {
+          id: item.id,
+          name: item.name,
+          categoryId: category.id,
+          categoryName: category.name,
+          icon: category.icon,
+          lastSelectedAt: now,
+          selectionCount: (previous?.selectionCount ?? 0) + 1,
+          recentSelectedAt: [now, ...(previous?.recentSelectedAt ?? [])].slice(0, 5),
+        },
+        ...current.filter(
+          (past) => !(past.categoryId === category.id && past.id === item.id),
+        ),
+      ];
+    });
   const toggle = (categoryId: string, itemId: string) => {
     const category = categories.find((c) => c.id === categoryId);
     const item = category?.items.find((i) => i.id === itemId);
@@ -629,6 +692,12 @@ export default function Home() {
     ]);
     setQuickInput("");
     showNotice("今回限りアイテムを追加しました");
+    requestAnimationFrame(() => quickInputRef.current?.focus());
+  };
+  const toggleFromSearch = (item: SearchableItem) => {
+    toggle(item.categoryId, item.itemId);
+    setQuickInput("");
+    requestAnimationFrame(() => quickInputRef.current?.focus());
   };
   const reorderItems = ({ active: dragged, over }: DragEndEvent) => {
     if (!activeId || !over || dragged.id === over.id) return;
@@ -695,7 +764,14 @@ export default function Home() {
     const category = categories.find((c) => c.id === past.categoryId);
     const existing = category?.items.find((item) => item.id === past.id);
     if (existing) toggle(past.categoryId, past.id);
-    else
+    else {
+      if (category)
+        rememberItem(category, {
+          id: past.id,
+          name: past.name,
+          selected: true,
+          quantity: 1,
+        });
       setCategories((current) =>
         current.map((c) =>
           c.id === past.categoryId
@@ -709,6 +785,7 @@ export default function Home() {
             : c,
         ),
       );
+    }
   };
   const shareList = async () => {
     if (!count || sharing) return;
@@ -783,14 +860,14 @@ export default function Home() {
       </header>
       {view === "select" ? (
         <>
-          <section className="quick-add" aria-label="商品検索と今回限り追加">
+          <section className="quick-add" aria-label="商品名からすぐ追加">
             <div className="quick-add-heading">
               <span>
                 <Search />
               </span>
               <div>
-                <h2>すぐに追加</h2>
-                <p>商品を検索。なければ今回限りで追加できます</p>
+                <h2>商品名からすぐ追加</h2>
+                <p>買うものが決まっているときはこちら</p>
               </div>
             </div>
             <form
@@ -801,6 +878,7 @@ export default function Home() {
             >
               <Search aria-hidden="true" />
               <input
+                ref={quickInputRef}
                 value={quickInput}
                 onChange={(event) => setQuickInput(event.target.value)}
                 placeholder="商品名を入力"
@@ -826,7 +904,7 @@ export default function Home() {
                     type="button"
                     key={`${result.categoryId}-${result.itemId}`}
                     className={result.selected ? "selected" : ""}
-                    onClick={() => toggle(result.categoryId, result.itemId)}
+                    onClick={() => toggleFromSearch(result)}
                     aria-pressed={result.selected}
                   >
                     <span className="quick-result-icon">
@@ -888,39 +966,56 @@ export default function Home() {
               </div>
             )}
           </section>
-          <div className="selection-tools">
-            <div
-              className="select-tabs"
-              role="tablist"
-              aria-label="商品の選び方"
-            >
+          {frequentItems.length > 0 && (
+            <section className="frequent-section" aria-labelledby="frequent-title">
+              <div className="section-heading">
+                <div>
+                  <p>いつもの商品を1タップで</p>
+                  <h2 id="frequent-title">よく買うもの</h2>
+                </div>
+                {history.length > frequentItems.length && (
+                  <button type="button" onClick={() => setHistoryOpen(true)}>
+                    すべて見る <ChevronRight />
+                  </button>
+                )}
+              </div>
+              <div className="frequent-grid">
+                {frequentItems.map((past) => {
+                  const selected = categories
+                    .find((category) => category.id === past.categoryId)
+                    ?.items.find((item) => item.id === past.id)?.selected ?? false;
+                  return (
+                    <button
+                      type="button"
+                      key={`${past.categoryId}-${past.id}`}
+                      className={selected ? "selected" : ""}
+                      onClick={() => toggleFromHistory(past)}
+                      aria-pressed={selected}
+                    >
+                      <span><CategoryIcon name={past.icon} size={16} /></span>
+                      <strong>{past.name}</strong>
+                      <i>{selected ? <Check /> : <Plus />}</i>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          <section className="browse-section" aria-labelledby="browse-title">
+            <div className="section-heading browse-heading">
+              <div>
+                <p>一覧を見ながら思い出す</p>
+                <h2 id="browse-title">見ながら選ぶ</h2>
+              </div>
               <button
-                role="tab"
-                aria-selected={selectTab === "category"}
-                className={selectTab === "category" ? "active" : ""}
-                onClick={() => setSelectTab("category")}
+                type="button"
+                className="clear-compact"
+                onClick={clearAll}
+                disabled={!count}
               >
-                カテゴリ
-              </button>
-              <button
-                role="tab"
-                aria-selected={selectTab === "history"}
-                className={selectTab === "history" ? "active" : ""}
-                onClick={() => setSelectTab("history")}
-              >
-                履歴{history.length > 0 && <span>{history.length}</span>}
+                <RotateCcw /> すべて解除
               </button>
             </div>
-            <button className="clear" onClick={clearAll} disabled={!count}>
-              <RotateCcw />
-              <span>
-                <strong>選択解除</strong>
-                <small>すべて解除</small>
-              </span>
-            </button>
-          </div>
-          {selectTab === "category" ? (
-            <>
               <section className="category-grid" aria-label="商品カテゴリー">
                 {categories.map((c) => {
                   const n = c.items.filter((i) => i.selected).length;
@@ -995,11 +1090,11 @@ export default function Home() {
                     onDragEnd={reorderItems}
                   >
                     <SortableContext
-                      items={active.items.map((item) => item.id)}
+                      items={orderedActiveItems.map((item) => item.id)}
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="item-list">
-                        {active.items.map((item) => (
+                        {orderedActiveItems.map((item) => (
                           <SortableItemRow
                             key={item.id}
                             item={item}
@@ -1043,56 +1138,7 @@ export default function Home() {
                   )}
                 </section>
               )}
-            </>
-          ) : (
-            <section
-              className="history-list"
-              aria-label="選択したことがある商品"
-            >
-              {history.length ? (
-                <div className="history-product-list">
-                  {history.map((past) => {
-                    const selected =
-                      categories
-                        .find((c) => c.id === past.categoryId)
-                        ?.items.find((item) => item.id === past.id)?.selected ??
-                      false;
-                    return (
-                      <button
-                        key={`${past.categoryId}-${past.id}`}
-                        className={selected ? "selected" : ""}
-                        onClick={() => toggleFromHistory(past)}
-                        aria-pressed={selected}
-                      >
-                        <span className="history-product-icon">
-                          <CategoryIcon name={past.icon} size={17} />
-                        </span>
-                        <span>
-                          <strong>{past.name}</strong>
-                          <small>{past.categoryName}</small>
-                        </span>
-                        <i>
-                          <Check />
-                        </i>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="history-empty">
-                  <span>
-                    <Clock3 />
-                  </span>
-                  <h3>まだ履歴がありません</h3>
-                  <p>
-                    商品を選ぶと、次回からここで
-                    <br />
-                    すばやく選べるようになります。
-                  </p>
-                </div>
-              )}
-            </section>
-          )}
+          </section>
         </>
       ) : (
         <section className="shopping-view">
@@ -1231,6 +1277,55 @@ export default function Home() {
       {notice && (
         <div className="notice" role="status">
           {notice}
+        </div>
+      )}
+      {historyOpen && (
+        <div
+          className="modal-backdrop history-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setHistoryOpen(false);
+          }}
+        >
+          <section
+            className="history-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-title"
+          >
+            <header>
+              <div>
+                <p>選んだことのある商品</p>
+                <h2 id="history-title">すべての履歴</h2>
+              </div>
+              <button onClick={() => setHistoryOpen(false)} aria-label="閉じる">
+                <X />
+              </button>
+            </header>
+            <div className="history-product-list">
+              {rankedHistory.map((past) => {
+                const selected = categories
+                  .find((category) => category.id === past.categoryId)
+                  ?.items.find((item) => item.id === past.id)?.selected ?? false;
+                return (
+                  <button
+                    key={`${past.categoryId}-${past.id}`}
+                    className={selected ? "selected" : ""}
+                    onClick={() => toggleFromHistory(past)}
+                    aria-pressed={selected}
+                  >
+                    <span className="history-product-icon">
+                      <CategoryIcon name={past.icon} size={17} />
+                    </span>
+                    <span>
+                      <strong>{past.name}</strong>
+                      <small>{past.categoryName}・{past.selectionCount}回選択</small>
+                    </span>
+                    <i><Check /></i>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         </div>
       )}
       {categoryOpen && (
