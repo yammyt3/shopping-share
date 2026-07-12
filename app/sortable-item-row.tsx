@@ -35,13 +35,17 @@ export function SortableItemRow({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
       className={`item-row sortable-row ${item.selected ? "selected" : ""} ${isDragging ? "dragging" : ""}`}
     >
-      <span className="drag-handle" aria-hidden="true">
+      <button
+        type="button"
+        className="drag-handle"
+        aria-label={`${item.name}を並べ替える`}
+        {...attributes}
+        {...listeners}
+      >
         <GripVertical />
-      </span>
+      </button>
       <button
         className="item-toggle"
         onClick={onToggle}

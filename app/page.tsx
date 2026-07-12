@@ -589,22 +589,6 @@ export default function Home() {
     [history, historyReferenceTime],
   );
   const frequentItems = rankedHistory.slice(0, 8);
-  const activeHistory = useMemo(
-    () => new Map(history.map((item) => [`${item.categoryId}:${item.id}`, item])),
-    [history],
-  );
-  const orderedActiveItems = useMemo(
-    () =>
-      active
-        ? [...active.items].sort((a, b) => {
-            const aHistory = activeHistory.get(`${active.id}:${a.id}`);
-            const bHistory = activeHistory.get(`${active.id}:${b.id}`);
-            return (bHistory ? getHistoryScore(bHistory, historyReferenceTime) : 0) -
-              (aHistory ? getHistoryScore(aHistory, historyReferenceTime) : 0);
-          })
-        : [],
-    [active, activeHistory, historyReferenceTime],
-  );
 
   const rememberItem = (category: Category, item: Item) =>
     setHistory((current) => {
@@ -1078,11 +1062,11 @@ export default function Home() {
                     onDragEnd={reorderItems}
                   >
                     <SortableContext
-                      items={orderedActiveItems.map((item) => item.id)}
+                      items={active.items.map((item) => item.id)}
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="item-list">
-                        {orderedActiveItems.map((item) => (
+                        {active.items.map((item) => (
                           <SortableItemRow
                             key={item.id}
                             item={item}
