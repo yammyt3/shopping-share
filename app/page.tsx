@@ -861,42 +861,44 @@ export default function Home() {
       {view === "select" ? (
         <>
           <section className="quick-add" aria-label="商品名からすぐ追加">
-            <div className="quick-add-heading">
-              <span>
-                <Search />
-              </span>
-              <div>
-                <h2>商品名からすぐ追加</h2>
-                <p>買うものが決まっているときはこちら</p>
-              </div>
+            <div className="quick-toolbar">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  addTemporaryItem();
+                }}
+              >
+                <Search aria-hidden="true" />
+                <input
+                  ref={quickInputRef}
+                  value={quickInput}
+                  onChange={(event) => setQuickInput(event.target.value)}
+                  placeholder="検索または今回限り追加"
+                  aria-label="商品を検索、または今回限りで追加"
+                  maxLength={40}
+                  autoComplete="off"
+                />
+                {quickInput && (
+                  <button
+                    type="button"
+                    className="quick-clear"
+                    onClick={() => setQuickInput("")}
+                    aria-label="入力を消去"
+                  >
+                    <X />
+                  </button>
+                )}
+              </form>
+              <button
+                type="button"
+                className="clear-quick"
+                onClick={clearAll}
+                disabled={!count}
+              >
+                <RotateCcw />
+                <span>すべて解除</span>
+              </button>
             </div>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                addTemporaryItem();
-              }}
-            >
-              <Search aria-hidden="true" />
-              <input
-                ref={quickInputRef}
-                value={quickInput}
-                onChange={(event) => setQuickInput(event.target.value)}
-                placeholder="商品名を入力"
-                aria-label="商品を検索、または今回限りで追加"
-                maxLength={40}
-                autoComplete="off"
-              />
-              {quickInput && (
-                <button
-                  type="button"
-                  className="quick-clear"
-                  onClick={() => setQuickInput("")}
-                  aria-label="入力を消去"
-                >
-                  <X />
-                </button>
-              )}
-            </form>
             {quickInput.trim() && (
               <div className="quick-results" aria-label="検索候補">
                 {searchResults.map((result) => (
@@ -969,10 +971,7 @@ export default function Home() {
           {frequentItems.length > 0 && (
             <section className="frequent-section" aria-labelledby="frequent-title">
               <div className="section-heading">
-                <div>
-                  <p>いつもの商品を1タップで</p>
-                  <h2 id="frequent-title">よく買うもの</h2>
-                </div>
+                <h2 id="frequent-title">買い物履歴</h2>
                 {history.length > frequentItems.length && (
                   <button type="button" onClick={() => setHistoryOpen(true)}>
                     すべて見る <ChevronRight />
@@ -1003,18 +1002,7 @@ export default function Home() {
           )}
           <section className="browse-section" aria-labelledby="browse-title">
             <div className="section-heading browse-heading">
-              <div>
-                <p>一覧を見ながら思い出す</p>
-                <h2 id="browse-title">見ながら選ぶ</h2>
-              </div>
-              <button
-                type="button"
-                className="clear-compact"
-                onClick={clearAll}
-                disabled={!count}
-              >
-                <RotateCcw /> すべて解除
-              </button>
+              <h2 id="browse-title">カテゴリから選ぶ</h2>
             </div>
               <section className="category-grid" aria-label="商品カテゴリー">
                 {categories.map((c) => {
